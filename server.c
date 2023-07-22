@@ -71,7 +71,6 @@ int read_fractal(char *header, char *data) {
             data  = new;
         }
         int cnt = fscanf(fp, "%c", &data[dataCnt]);
-        printf("%d ", data[dataCnt]);
         if(cnt == EOF)
             break;
         if(cnt < 1) {
@@ -81,7 +80,7 @@ int read_fractal(char *header, char *data) {
         dataCnt++;
     }
     fclose(fp);
-    return strlen(data);
+    return dataCnt;
 }
 
 char *get_current_time() {
@@ -146,24 +145,47 @@ int main(int argc, char *argv[]) {
 
     // read fractal and get the length
     char header[55];
-    char  *data;
+    char *data;
     data = malloc(sizeof(char) * 256);
     int len = read_fractal(header, data);
 
     // encrypt fractal
     char cipher[len];
     DES_cblock iv = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    DES_ncbc_encrypt(data, cipher, len,&keysched, &iv, DES_ENCRYPT);
+    DES_ncbc_encrypt((unsigned char *)data, (unsigned char *)cipher, len,&keysched, &iv, DES_ENCRYPT);
 
-    // Send response with encrypted fractal
-    if(send(ns, cipher, len, 0) < 0) {
+    //print_data("Original data: ", (const void *)data, len);
+    //print_data("Encrypted data: ", (const void *)cipher, len);
+
+    // Send the header (not encrypted)
+    if(send(ns, header, 55, 0) < 0) {
         perror("send");
         exit(0);
     }
 
+    int pos = 0;
+    while(pos < len) {
+        char buff[1024];
+        int i;
+        for(i=0; i<1023; i++) {
+            if(pos >= len) break;
+            buff[i] = cipher[pos];
+            pos++;
+        }
+        buff[i++] = '\0';
+        printf("%s\n", buff);
+        // Send encrypted fractal in parts of 1024 bits
+        if(send(ns, buff, i, 0) < 0) {
+            perror("send");
+            exit(0);
+        }
+    }
+    printf("body size: %d", pos);
+
     //send_response(ns, data);
     printf("[%s] %s:%d Closed\n", get_current_time(), inet_ntoa(client.sin_addr), ntohs(client.sin_port));
     close(ns);
+
 
     printf("[%s] Server closing\n", get_current_time());
     close(tcp_socket);
